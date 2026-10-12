@@ -43,6 +43,11 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
+      - name: Verify Google Services Configuration
+        run: |
+          test -f android/app/google-services.json || { echo "::error::android/app/google-services.json is missing! Please ensure it is committed to repository."; exit 1; }
+          echo "android/app/google-services.json found successfully."
+
       - name: Build APK
         run: |
           cd android
