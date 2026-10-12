@@ -39,4 +39,5 @@ android/app/*.iml
 
 # Explicitly ensure Google Services Firebase config is tracked
 !android/app/google-services.json
+!android/app/google-services.json.b64
 

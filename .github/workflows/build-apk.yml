@@ -43,10 +43,19 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Verify Google Services Configuration
+      - name: Restore and Verify Google Services Configuration
         run: |
-          test -f android/app/google-services.json || { echo "::error::android/app/google-services.json is missing! Please ensure it is committed to repository."; exit 1; }
-          echo "android/app/google-services.json found successfully."
+          if [ ! -f android/app/google-services.json ]; then
+            if [ -n "${{ secrets.GOOGLE_SERVICES_JSON }}" ]; then
+              echo "Restoring google-services.json from GitHub Secrets..."
+              echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
+            elif [ -f android/app/google-services.json.b64 ]; then
+              echo "Restoring google-services.json from base64 backup..."
+              base64 -d android/app/google-services.json.b64 > android/app/google-services.json
+            fi
+          fi
+          test -f android/app/google-services.json || { echo "::error::android/app/google-services.json is missing! Please ensure it is committed to repository, provided via GOOGLE_SERVICES_JSON secret, or restored from backup."; exit 1; }
+          echo "android/app/google-services.json verified successfully."
 
       - name: Build APK
         run: |
