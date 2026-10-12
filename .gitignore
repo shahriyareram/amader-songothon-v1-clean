@@ -36,3 +36,7 @@ android/captures/
 android/.idea/
 android/*.iml
 android/app/*.iml
+
+# Explicitly ensure Google Services Firebase config is tracked
+!android/app/google-services.json
+
