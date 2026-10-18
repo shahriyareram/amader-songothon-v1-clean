@@ -352,6 +352,31 @@ function buildWeeklyPaymentNotificationMessage(params) {
   }
   return "\u0986\u09AA\u09A8\u09BE\u09B0 \u099C\u09AE\u09BE\u09B0 \u09A4\u09A5\u09CD\u09AF \u09B8\u09AB\u09B2\u09AD\u09BE\u09AC\u09C7 \u09B8\u0982\u09B0\u0995\u09CD\u09B7\u09BF\u09A4 \u09B9\u09AF\u09BC\u09C7\u099B\u09C7\u0964 \u09A7\u09A8\u09CD\u09AF\u09AC\u09BE\u09A6\u0964";
 }
+function getWeeklyPaymentNotificationTitle(params) {
+  const clearedArrears = (params.clearedArrearWeeks || []).filter((w) => w > 0);
+  const remainingDue = (params.remainingDueWeeks || []).filter((w) => w > 0);
+  const advance = (params.advanceWeeks || []).filter((w) => w > 0);
+  if (remainingDue.length > 0 && clearedArrears.length === 0) {
+    return "\u09B8\u09BE\u09AA\u09CD\u09A4\u09BE\u09B9\u09BF\u0995 \u099C\u09AE\u09BE \u09AC\u0995\u09C7\u09AF\u09BC\u09BE \u09B0\u09AF\u09BC\u09C7\u099B\u09C7";
+  }
+  if (advance.length > 0 && clearedArrears.length === 0 && remainingDue.length === 0) {
+    return "\u0985\u0997\u09CD\u09B0\u09BF\u09AE \u099C\u09AE\u09BE \u09B8\u09AB\u09B2 \u09B9\u09AF\u09BC\u09C7\u099B\u09C7";
+  }
+  return "\u09B8\u09BE\u09AA\u09CD\u09A4\u09BE\u09B9\u09BF\u0995 \u099C\u09AE\u09BE \u09B8\u09AB\u09B2 \u09B9\u09AF\u09BC\u09C7\u099B\u09C7";
+}
+function deriveNotificationTitleFromMessage(message) {
+  const text = (message || "").trim();
+  if (!text) return "\u09B8\u09BE\u09AA\u09CD\u09A4\u09BE\u09B9\u09BF\u0995 \u099C\u09AE\u09BE \u09B8\u09AB\u09B2 \u09B9\u09AF\u09BC\u09C7\u099B\u09C7";
+  const isPureDue = (text.includes("\u09AC\u0995\u09C7\u09AF\u09BC\u09BE \u09B0\u09AF\u09BC\u09C7\u099B\u09C7") || text.includes("\u09AC\u0995\u09C7\u09DF\u09BE \u09B0\u09DF\u09C7\u099B\u09C7") || text.includes("\u099F\u09BE\u0995\u09BE \u098F\u0996\u09A8\u0993 \u099C\u09AE\u09BE \u09B9\u09AF\u09BC\u09A8\u09BF") || text.includes("\u09AC\u0995\u09C7\u09DF\u09BE \u09AA\u09B0\u09BF\u09B6\u09CB\u09A7 \u0995\u09B0\u09C1\u09A8") || text.includes("\u09AC\u0995\u09C7\u09AF\u09BC\u09BE \u09AA\u09B0\u09BF\u09B6\u09CB\u09A7 \u0995\u09B0\u09C1\u09A8")) && !text.includes("\u09AC\u0995\u09C7\u09AF\u09BC\u09BE \u09AA\u09B0\u09BF\u09B6\u09CB\u09A7 \u09B9\u09AF\u09BC\u09C7\u099B\u09C7") && !text.includes("\u09AC\u0995\u09C7\u09DF\u09BE \u09AA\u09B0\u09BF\u09B6\u09CB\u09A7 \u09B9\u09DF\u09C7\u099B\u09C7");
+  if (isPureDue) {
+    return "\u09B8\u09BE\u09AA\u09CD\u09A4\u09BE\u09B9\u09BF\u0995 \u099C\u09AE\u09BE \u09AC\u0995\u09C7\u09AF\u09BC\u09BE \u09B0\u09AF\u09BC\u09C7\u099B\u09C7";
+  }
+  const isAdvance = (text.includes("\u0985\u0997\u09CD\u09B0\u09BF\u09AE \u099C\u09AE\u09BE \u09B9\u09AF\u09BC\u09C7\u099B\u09C7") || text.includes("\u0985\u0997\u09CD\u09B0\u09BF\u09AE \u099C\u09AE\u09BE \u0986\u099B\u09C7")) && !text.includes("\u09AC\u0995\u09C7\u09AF\u09BC\u09BE") && !text.includes("\u09AC\u0995\u09C7\u09DF\u09BE");
+  if (isAdvance) {
+    return "\u0985\u0997\u09CD\u09B0\u09BF\u09AE \u099C\u09AE\u09BE \u09B8\u09AB\u09B2 \u09B9\u09AF\u09BC\u09C7\u099B\u09C7";
+  }
+  return "\u09B8\u09BE\u09AA\u09CD\u09A4\u09BE\u09B9\u09BF\u0995 \u099C\u09AE\u09BE \u09B8\u09AB\u09B2 \u09B9\u09AF\u09BC\u09C7\u099B\u09C7";
+}
 
 // server.ts
 var bnToEnMap = {
@@ -1687,7 +1712,7 @@ async function startServer() {
   });
   app.post("/api/notifications/confirm-and-send", async (req, res) => {
     try {
-      const { eventId, memberId, memberName, weekNumber, amount, date, message } = req.body;
+      const { eventId, memberId, memberName, weekNumber, amount, date, message, title: requestedTitle } = req.body;
       if (!memberId) {
         return res.status(400).json({ error: "memberId is required" });
       }
@@ -1731,6 +1756,7 @@ async function startServer() {
               );
               finalNotificationBody = `\u09B8\u09AE\u09CD\u09AE\u09BE\u09A8\u09BF\u09A4 ${memberName || memberData.name || ""}, \u0986\u09AA\u09A8\u09BE\u09B0 \u09B8\u09AA\u09CD\u09A4\u09BE\u09B9 ${weekNumBn}-\u098F\u09B0 \u099C\u09AE\u09BE \u09B8\u09AB\u09B2\u09AD\u09BE\u09AC\u09C7 \u09B8\u0982\u09B0\u0995\u09CD\u09B7\u09BF\u09A4 \u09B9\u09DF\u09C7\u099B\u09C7\u0964 \u09A7\u09A8\u09CD\u09AF\u09AC\u09BE\u09A6\u0964`;
             }
+            const notificationTitle = requestedTitle?.trim() || deriveNotificationTitleFromMessage(finalNotificationBody);
             let fcmSentSuccessfully = false;
             let fcmFailureReason = null;
             if (!adminMessagingInstance) {
@@ -1742,7 +1768,7 @@ async function startServer() {
                 await adminMessagingInstance.send({
                   token: memberData.fcmToken,
                   notification: {
-                    title: "\u09B8\u09BE\u09AA\u09CD\u09A4\u09BE\u09B9\u09BF\u0995 \u099C\u09AE\u09BE \u09B8\u09AB\u09B2 \u09B9\u09AF\u09BC\u09C7\u099B\u09C7",
+                    title: notificationTitle,
                     body: finalNotificationBody
                   },
                   data: {
@@ -2029,19 +2055,25 @@ async function runFridayMorningNotifications(dhakaDateString) {
     const remainingDue = finances.all52Weeks.filter((w) => w.weekNumber <= currentWeek && w.status === "due").map((w) => w.weekNumber);
     const advance = finances.all52Weeks.filter((w) => w.weekNumber > currentWeek && (w.status === "advance" || w.status === "paid")).map((w) => w.weekNumber);
     let notificationBody = "";
+    let notificationTitle = "\u09B8\u09BE\u09AA\u09CD\u09A4\u09BE\u09B9\u09BF\u0995 \u099C\u09AE\u09BE \u09B8\u09AB\u09B2 \u09B9\u09AF\u09BC\u09C7\u099B\u09C7";
     if (remainingDue.length > 0 || advance.length > 0) {
       notificationBody = buildWeeklyPaymentNotificationMessage({
         remainingDueWeeks: remainingDue,
         advanceWeeks: advance
       });
+      notificationTitle = getWeeklyPaymentNotificationTitle({
+        remainingDueWeeks: remainingDue,
+        advanceWeeks: advance
+      });
     } else {
       notificationBody = `\u09B8\u09AE\u09CD\u09AE\u09BE\u09A8\u09BF\u09A4 ${member.name}, \u0986\u09AA\u09A8\u09BE\u09B0 \u09B8\u09AA\u09CD\u09A4\u09BE\u09B9 ${toBengaliNumber(currentWeek)}-\u098F\u09B0 \u099C\u09AE\u09BE \u09B8\u09AB\u09B2\u09AD\u09BE\u09AC\u09C7 \u09B8\u0982\u09B0\u0995\u09CD\u09B7\u09BF\u09A4 \u09B9\u09DF\u09C7\u099B\u09C7\u0964 \u09A7\u09A8\u09CD\u09AF\u09AC\u09BE\u09A6\u0964`;
+      notificationTitle = "\u09B8\u09BE\u09AA\u09CD\u09A4\u09BE\u09B9\u09BF\u0995 \u099C\u09AE\u09BE \u09B8\u09AB\u09B2 \u09B9\u09AF\u09BC\u09C7\u099B\u09C7";
     }
     try {
       await adminMessagingInstance.send({
         token: token.trim(),
         notification: {
-          title: "\u09B8\u09BE\u09AA\u09CD\u09A4\u09BE\u09B9\u09BF\u0995 \u0995\u09BF\u09B8\u09CD\u09A4\u09BF \u0986\u09AA\u09A1\u09C7\u099F",
+          title: notificationTitle,
           body: notificationBody
         },
         data: {
@@ -2241,7 +2273,7 @@ async function runFridayNightDueReminders(dhakaDateString) {
       await adminMessagingInstance.send({
         token: token.trim(),
         notification: {
-          title: "\u09AC\u0995\u09C7\u09DF\u09BE \u0995\u09BF\u09B8\u09CD\u09A4\u09BF\u09B0 \u09A4\u09BE\u0997\u09BE\u09A6\u09BE",
+          title: "\u09B8\u09BE\u09AA\u09CD\u09A4\u09BE\u09B9\u09BF\u0995 \u099C\u09AE\u09BE \u09AC\u0995\u09C7\u09AF\u09BC\u09BE \u09B0\u09AF\u09BC\u09C7\u099B\u09C7",
           body: notificationBody
         },
         data: {

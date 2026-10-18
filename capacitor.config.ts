@@ -20,6 +20,9 @@ const config: CapacitorConfig = {
       androidScaleType: 'CENTER_CROP',
       showSpinner: false,
     },
+    CapacitorUpdater: {
+      autoUpdate: false,
+    },
   },
 };
 

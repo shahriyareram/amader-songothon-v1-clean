@@ -22,7 +22,11 @@ import fs from 'fs';
 import { Member } from './src/types';
 import { getCurrentWeekNumber, toBengaliNumber } from './src/utils/bengali';
 import { processMember52Weeks } from './src/utils/calculations';
-import { buildWeeklyPaymentNotificationMessage } from './src/utils/notificationMessageHelper';
+import {
+  buildWeeklyPaymentNotificationMessage,
+  getWeeklyPaymentNotificationTitle,
+  deriveNotificationTitleFromMessage,
+} from './src/utils/notificationMessageHelper';
 
 // Bengali numerals to English digits mapping
 const bnToEnMap: Record<string, string> = {
@@ -1652,7 +1656,7 @@ async function startServer() {
   // It verifies member's notificationsEnabled flag, updates notificationEvent, and dispatches FCM message.
   app.post('/api/notifications/confirm-and-send', async (req, res) => {
     try {
-      const { eventId, memberId, memberName, weekNumber, amount, date, message } = req.body;
+      const { eventId, memberId, memberName, weekNumber, amount, date, message, title: requestedTitle } = req.body;
       if (!memberId) {
         return res.status(400).json({ error: 'memberId is required' });
       }
@@ -1702,6 +1706,11 @@ async function startServer() {
               finalNotificationBody = `সম্মানিত ${memberName || memberData.name || ''}, আপনার সপ্তাহ ${weekNumBn}-এর জমা সফলভাবে সংরক্ষিত হয়েছে। ধন্যবাদ।`;
             }
 
+            // Determine accurate notification title
+            const notificationTitle =
+              (requestedTitle as string | undefined)?.trim() ||
+              deriveNotificationTitleFromMessage(finalNotificationBody);
+
             // If Firebase Admin Messaging is available and member has an FCM token, dispatch message
             let fcmSentSuccessfully = false;
             let fcmFailureReason: string | null = null;
@@ -1715,7 +1724,7 @@ async function startServer() {
                 await adminMessagingInstance.send({
                   token: memberData.fcmToken,
                   notification: {
-                    title: 'সাপ্তাহিক জমা সফল হয়েছে',
+                    title: notificationTitle,
                     body: finalNotificationBody,
                   },
                   data: {
@@ -2075,13 +2084,19 @@ async function runFridayMorningNotifications(dhakaDateString: string): Promise<v
       .map((w) => w.weekNumber);
 
     let notificationBody = '';
+    let notificationTitle = 'সাপ্তাহিক জমা সফল হয়েছে';
     if (remainingDue.length > 0 || advance.length > 0) {
       notificationBody = buildWeeklyPaymentNotificationMessage({
         remainingDueWeeks: remainingDue,
         advanceWeeks: advance,
       });
+      notificationTitle = getWeeklyPaymentNotificationTitle({
+        remainingDueWeeks: remainingDue,
+        advanceWeeks: advance,
+      });
     } else {
       notificationBody = `সম্মানিত ${member.name}, আপনার সপ্তাহ ${toBengaliNumber(currentWeek)}-এর জমা সফলভাবে সংরক্ষিত হয়েছে। ধন্যবাদ।`;
+      notificationTitle = 'সাপ্তাহিক জমা সফল হয়েছে';
     }
 
     // Dispatch FCM Notification using existing Firebase Admin Messaging instance
@@ -2089,7 +2104,7 @@ async function runFridayMorningNotifications(dhakaDateString: string): Promise<v
       await adminMessagingInstance.send({
         token: token.trim(),
         notification: {
-          title: 'সাপ্তাহিক কিস্তি আপডেট',
+          title: notificationTitle,
           body: notificationBody,
         },
         data: {
@@ -2336,7 +2351,7 @@ async function runFridayNightDueReminders(dhakaDateString: string): Promise<void
       await adminMessagingInstance.send({
         token: token.trim(),
         notification: {
-          title: 'বকেয়া কিস্তির তাগাদা',
+          title: 'সাপ্তাহিক জমা বকেয়া রয়েছে',
           body: notificationBody,
         },
         data: {

@@ -71,12 +71,21 @@ import {
   syncFcmTokenForActiveMember,
   setupForegroundNotificationListener,
 } from './services/notificationService';
+import { Capacitor } from '@capacitor/core';
+import { CapacitorUpdater } from '@capgo/capacitor-updater';
+import {
+  checkAvailableOtaUpdate,
+  downloadAndStageOtaUpdate,
+  AvailableOtaInfo,
+} from './services/otaUpdateService';
 
 const STORAGE_MEMBERS = 'amader_shongothon_members_v2';
 const STORAGE_SETTINGS = 'amader_shongothon_settings_v2';
 const STORAGE_TRANSACTIONS = 'amader_shongothon_transactions_v2';
 const STORAGE_ADMIN = 'amader_shongothon_admin_v2';
 const STORAGE_SESSION = 'amader_shongothon_session_v2';
+
+let isAppReadyNotified = false;
 
 // Helper to ensure loaded member data is always valid and contains all 52 weeks
 function validateAndSanitizeMembers(raw: any[]): Member[] | null {
@@ -322,6 +331,65 @@ export function App() {
     title: string;
     body: string;
   } | null>(null);
+
+  // OTA Update Dialog State
+  const [otaUpdateInfo, setOtaUpdateInfo] = useState<AvailableOtaInfo | null>(null);
+  const [isOtaUpdating, setIsOtaUpdating] = useState<boolean>(false);
+  const [otaUpdateSuccess, setOtaUpdateSuccess] = useState<boolean>(false);
+  const [otaErrorMessage, setOtaErrorMessage] = useState<string | null>(null);
+  const [isOtaDismissedThisSession, setIsOtaDismissedThisSession] = useState<boolean>(false);
+
+  // Capgo OTA readiness notification: confirms bundle initialized successfully to prevent automatic rollback
+  useEffect(() => {
+    if (Capacitor.isNativePlatform() && !isAppReadyNotified) {
+      isAppReadyNotified = true;
+      CapacitorUpdater.notifyAppReady().catch((err) => {
+        console.warn('[OTA] notifyAppReady note:', err);
+      });
+    }
+  }, []);
+
+  // Check for OTA updates 3 seconds after app launch (native Android only, non-blocking)
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const timer = setTimeout(async () => {
+      try {
+        const info = await checkAvailableOtaUpdate();
+        if (info && info.hasUpdate && !info.isAlreadyStaged) {
+          setOtaUpdateInfo(info);
+        }
+      } catch (err) {
+        console.warn('[OTA] Check note:', err);
+      }
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handlePerformOtaUpdate = async () => {
+    if (!otaUpdateInfo?.manifest) return;
+    setIsOtaUpdating(true);
+    setOtaErrorMessage(null);
+    try {
+      const result = await downloadAndStageOtaUpdate(otaUpdateInfo.manifest);
+      if (result.success) {
+        setOtaUpdateSuccess(true);
+      } else {
+        setOtaErrorMessage(result.error || 'আপডেট ডাউনলোড করতে সমস্যা হয়েছে।');
+      }
+    } catch (err: any) {
+      setOtaErrorMessage(err?.message || 'আপডেট ডাউনলোড ব্যর্থ হয়েছে।');
+    } finally {
+      setIsOtaUpdating(false);
+    }
+  };
+
+  const handleDismissOtaDialog = () => {
+    setIsOtaDismissedThisSession(true);
+    setOtaUpdateInfo(null);
+    setOtaUpdateSuccess(false);
+    setOtaErrorMessage(null);
+  };
 
   // Early non-blocking warm-up ping to wake up hosted backend if cold/sleeping
   useEffect(() => {
@@ -1981,6 +2049,102 @@ export function App() {
           duration={settings.popupDuration !== undefined ? Number(settings.popupDuration) : 5}
           onClose={() => setIsPopupDismissedThisSession(true)}
         />
+      )}
+
+      {/* User-Initiated Self-Hosted OTA Update Dialog */}
+      {otaUpdateInfo && !isOtaDismissedThisSession && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center border border-slate-200 relative overflow-hidden">
+            {/* Top decorative badge */}
+            <div className="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto mb-3 shadow-inner">
+              {otaUpdateSuccess ? (
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+              )}
+            </div>
+
+            <h3 className="text-base font-bold text-slate-800">
+              {otaUpdateSuccess ? 'আপডেট সম্পন্ন হয়েছে' : 'নতুন আপডেট উপলব্ধ'}
+            </h3>
+
+            {otaUpdateSuccess ? (
+              <div className="mt-2 text-xs text-slate-600 space-y-3">
+                <p className="bg-emerald-50 text-emerald-800 p-2.5 rounded-xl border border-emerald-200 font-medium">
+                  আপডেট ডাউনলোড হয়েছে। নতুন সংস্করণ চালু করতে অ্যাপটি বন্ধ করে আবার খুলুন।
+                </p>
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={handleDismissOtaDialog}
+                    className="w-full bg-emerald-700 hover:bg-emerald-800 active:scale-[0.98] text-white font-semibold text-xs py-2.5 px-4 rounded-xl shadow-sm transition-all"
+                  >
+                    ঠিক আছে
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-2 text-xs text-slate-600 space-y-3">
+                <p>
+                  অ্যাপের একটি নতুন সংস্করণ প্রকাশিত হয়েছে।
+                </p>
+
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-left text-[11px] space-y-1">
+                  <div className="flex justify-between text-slate-500">
+                    <span>বর্তমান সংস্করণ:</span>
+                    <span className="font-mono text-slate-700 font-semibold">{otaUpdateInfo.currentVersion}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-500">
+                    <span>নতুন সংস্করণ:</span>
+                    <span className="font-mono text-emerald-700 font-bold">{otaUpdateInfo.newVersion}</span>
+                  </div>
+                  {otaUpdateInfo.manifest.releaseNotes && (
+                    <div className="pt-1.5 border-t border-slate-200 text-slate-600">
+                      <span className="font-semibold text-slate-700">বিবরণ: </span>
+                      {otaUpdateInfo.manifest.releaseNotes}
+                    </div>
+                  )}
+                </div>
+
+                {otaErrorMessage && (
+                  <p className="text-[11px] text-rose-600 bg-rose-50 p-2 rounded-lg border border-rose-200 text-left">
+                    {otaErrorMessage}
+                  </p>
+                )}
+
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    disabled={isOtaUpdating}
+                    onClick={handleDismissOtaDialog}
+                    className="flex-1 bg-slate-100 hover:bg-slate-200 active:scale-[0.98] text-slate-700 font-semibold text-xs py-2.5 px-3 rounded-xl transition-all disabled:opacity-50"
+                  >
+                    পরে করবেন
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isOtaUpdating}
+                    onClick={handlePerformOtaUpdate}
+                    className="flex-1 bg-emerald-700 hover:bg-emerald-800 active:scale-[0.98] text-white font-semibold text-xs py-2.5 px-3 rounded-xl shadow-sm transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  >
+                    {isOtaUpdating ? (
+                      <>
+                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>ডাউনলোড হচ্ছে...</span>
+                      </>
+                    ) : (
+                      <span>এখন আপডেট করুন</span>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </>
   );

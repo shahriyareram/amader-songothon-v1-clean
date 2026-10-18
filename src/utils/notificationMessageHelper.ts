@@ -151,3 +151,99 @@ export function generateNotificationFromLedgerState(
   });
 }
 
+/**
+ * Returns the exact notification title based on weekly payment params:
+ * 1. Due / Arrears: "সাপ্তাহিক জমা বকেয়া রয়েছে"
+ * 2. Advance deposit: "অগ্রিম জমা সফল হয়েছে"
+ * 3. Successful weekly deposit / cleared arrears: "সাপ্তাহিক জমা সফল হয়েছে"
+ */
+export function getWeeklyPaymentNotificationTitle(params: PaymentNotificationParams): string {
+  const clearedArrears = (params.clearedArrearWeeks || []).filter((w) => w > 0);
+  const remainingDue = (params.remainingDueWeeks || []).filter((w) => w > 0);
+  const advance = (params.advanceWeeks || []).filter((w) => w > 0);
+
+  // If there are remaining due weeks and NO arrears were cleared in this transaction, it is a due notification
+  if (remainingDue.length > 0 && clearedArrears.length === 0) {
+    return 'সাপ্তাহিক জমা বকেয়া রয়েছে';
+  }
+
+  // If only advance weeks are present (no arrears cleared and no remaining due)
+  if (advance.length > 0 && clearedArrears.length === 0 && remainingDue.length === 0) {
+    return 'অগ্রিম জমা সফল হয়েছে';
+  }
+
+  // When weekly payment is successful or arrears are cleared:
+  return 'সাপ্তাহিক জমা সফল হয়েছে';
+}
+
+/**
+ * Determines notification title from notification body text if explicit params are not available:
+ * - If body indicates due / arrears: "সাপ্তাহিক জমা বকেয়া রয়েছে"
+ * - If body indicates advance deposit: "অগ্রিম জমা সফল হয়েছে"
+ * - Default / successful deposit: "সাপ্তাহিক জমা সফল হয়েছে"
+ */
+export function deriveNotificationTitleFromMessage(message: string): string {
+  const text = (message || '').trim();
+  if (!text) return 'সাপ্তাহিক জমা সফল হয়েছে';
+
+  const isPureDue =
+    (text.includes('বকেয়া রয়েছে') ||
+      text.includes('বকেয়া রয়েছে') ||
+      text.includes('টাকা এখনও জমা হয়নি') ||
+      text.includes('বকেয়া পরিশোধ করুন') ||
+      text.includes('বকেয়া পরিশোধ করুন')) &&
+    !text.includes('বকেয়া পরিশোধ হয়েছে') &&
+    !text.includes('বকেয়া পরিশোধ হয়েছে');
+
+  if (isPureDue) {
+    return 'সাপ্তাহিক জমা বকেয়া রয়েছে';
+  }
+
+  const isAdvance =
+    (text.includes('অগ্রিম জমা হয়েছে') ||
+      text.includes('অগ্রিম জমা আছে')) &&
+    !text.includes('বকেয়া') &&
+    !text.includes('বকেয়া');
+
+  if (isAdvance) {
+    return 'অগ্রিম জমা সফল হয়েছে';
+  }
+
+  return 'সাপ্তাহিক জমা সফল হয়েছে';
+}
+
+export function generateNotificationTitleFromLedgerState(
+  beforeWeeks: Array<{ weekNumber: number; status: string }>,
+  afterWeeks: Array<{ weekNumber: number; status: string }>,
+  currentWeek: number
+): string {
+  const dueBefore = new Set<number>();
+  for (const w of beforeWeeks) {
+    if (w.weekNumber <= currentWeek && w.status === 'due') {
+      dueBefore.add(w.weekNumber);
+    }
+  }
+
+  const clearedArrears: number[] = [];
+  const remainingDue: number[] = [];
+  const advanceWeeks: number[] = [];
+
+  for (const w of afterWeeks) {
+    if (w.weekNumber <= currentWeek) {
+      if (w.status === 'due') {
+        remainingDue.push(w.weekNumber);
+      } else if (w.status === 'paid' && dueBefore.has(w.weekNumber)) {
+        clearedArrears.push(w.weekNumber);
+      }
+    } else if (w.weekNumber > currentWeek && (w.status === 'advance' || w.status === 'paid')) {
+      advanceWeeks.push(w.weekNumber);
+    }
+  }
+
+  return getWeeklyPaymentNotificationTitle({
+    clearedArrearWeeks: clearedArrears,
+    remainingDueWeeks: remainingDue,
+    advanceWeeks: advanceWeeks,
+  });
+}
+

@@ -70,6 +70,9 @@ export const MemberSettingsPage: React.FC<MemberSettingsPageProps> = ({
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
   const [isDiagModalOpen, setIsDiagModalOpen] = useState(false);
 
+  // Reliable admin detection to hide diagnostics from general members
+  const isUserAdmin = Boolean(isAdmin || currentUser?.role === 'admin');
+
   // Notification state and handler
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermissionState>(() =>
     getNotificationPermission()
@@ -741,15 +744,17 @@ export const MemberSettingsPage: React.FC<MemberSettingsPageProps> = ({
               </div>
             </div>
 
-            <div className="pt-1">
-              <button
-                type="button"
-                onClick={() => setIsDiagModalOpen(true)}
-                className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-              >
-                <span>নোটিফিকেশন ডায়াগনস্টিক লগ দেখুন</span>
-              </button>
-            </div>
+            {isUserAdmin && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => setIsDiagModalOpen(true)}
+                  className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <span>নোটিফিকেশন ডায়াগনস্টিক লগ দেখুন</span>
+                </button>
+              </div>
+            )}
 
             <div className="text-center text-[11px] text-slate-400">
               ২০২৬ © সর্বস্বত্ব সংরক্ষিত
@@ -766,10 +771,12 @@ export const MemberSettingsPage: React.FC<MemberSettingsPageProps> = ({
         </div>
       )}
 
-      <PushDiagnosticModal
-        isOpen={isDiagModalOpen}
-        onClose={() => setIsDiagModalOpen(false)}
-      />
+      {isUserAdmin && (
+        <PushDiagnosticModal
+          isOpen={isDiagModalOpen}
+          onClose={() => setIsDiagModalOpen(false)}
+        />
+      )}
     </div>
   );
 };
